@@ -1,12 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Web;
+﻿using System.Collections.Generic;
 
 namespace Web.Models
 {
-    using System.Security.AccessControl;
-
     public class Order
     {
         public int OrderId { get; set; }

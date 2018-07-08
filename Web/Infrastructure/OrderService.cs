@@ -1,85 +1,65 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
+using System.Data;
 using System.Linq;
-using System.Web;
+using Web.Infrastructure.Repositories;
+using Web.Models;
 
 namespace Web.Infrastructure
 {
-    using System.Data;
-    using Models;
-
-    public class OrderService
+    public class OrderService : IOrderService
     {
-        public List<Order> GetOrdersForCompany(int CompanyId)
+        private readonly IOrdersRepository _ordersRepository;
+
+        public OrderService()  //if IoC tool installed, object will be initialized  via argument to constructor
         {
+            //For IoC. Use something like structureMap to initialize
+            // Will also allow unit tests to mock 
+            _ordersRepository = new OrdersRepository();
+        }
 
-            var database = new Database();
+        public IList<Order> GetOrdersForCompany(int companyId)
+        {
+            IList<Order> orderList;
+            IList<OrderProduct> productList;
 
-            // Get the orders
-            var sql1 =
-                "SELECT c.name, o.description, o.order_id FROM company c INNER JOIN [order] o on c.company_id=o.company_id";
-
-            var reader1 = database.ExecuteReader(sql1);
-
-            var values = new List<Order>();
-            
-            while (reader1.Read())
+            try
             {
-                var record1 = (IDataRecord) reader1;
+                orderList = _ordersRepository.GetOrders(companyId);
+                productList = _ordersRepository.GetOrderProducts();
+            }
+            catch (System.Exception e)
+            {
+                //log error using tool like log4net
+                string errMsg = "Exception while getting orders. companyId [{0}]";
+                //Log.Error(string.Format(errMsg, companyId), e);
 
-                values.Add(new Order()
-                {
-                    CompanyName = record1.GetString(0),
-                    Description = record1.GetString(1),
-                    OrderId = record1.GetInt32(2),
-                    OrderProducts = new List<OrderProduct>()
-                });
-
+                throw new DataException("Internal service problem with fetch order data", e);
             }
 
-            reader1.Close();
-
-            //Get the order products
-            var sql2 =
-                "SELECT op.price, op.order_id, op.product_id, op.quantity, p.name, p.price FROM orderproduct op INNER JOIN product p on op.product_id=p.product_id";
-
-            var reader2 = database.ExecuteReader(sql2);
-
-            var values2 = new List<OrderProduct>();
-
-            while (reader2.Read())
+            if (orderList == null)
             {
-                var record2 = (IDataRecord)reader2;
+                //nothing found, return empty list instead of null
+                return new List<Order>();
+            }
 
-                values2.Add(new OrderProduct()
-                {
-                    OrderId = record2.GetInt32(1),
-                    ProductId = record2.GetInt32(2),
-                    Price = record2.GetDecimal(0),
-                    Quantity = record2.GetInt32(3),
-                    Product = new Product()
-                    {
-                        Name = record2.GetString(4),
-                        Price = record2.GetDecimal(5)
-                    }
-                });
-             }
-
-            reader2.Close();
-
-            foreach (var order in values)
+            if (productList == null)
             {
-                foreach (var orderproduct in values2)
-                {
-                    if (orderproduct.OrderId != order.OrderId)
-                        continue;
+                //in case null, set to empty list, so it will work without worry below
+                productList = new List<OrderProduct>();
+            }
 
-                    order.OrderProducts.Add(orderproduct);
-                    order.OrderTotal = order.OrderTotal + (orderproduct.Price * orderproduct.Quantity);
+            foreach (var order in orderList)
+            {
+                order.OrderProducts = productList.Where(p => p.OrderId == order.OrderId).ToList();
+                if (order.OrderProducts == null)
+                {   //better to work with empty lists than trickster nulls
+                    order.OrderProducts = new List<OrderProduct>();
                 }
+
+                order.OrderTotal = order.OrderProducts.Sum(p => p.Price * p.Quantity);
             }
 
-            return values;
+            return orderList;
         }
     }
 }
